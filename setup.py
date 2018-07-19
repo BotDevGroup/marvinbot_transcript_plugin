@@ -3,7 +3,8 @@ from setuptools import find_packages
 
 REQUIREMENTS = [
     'marvinbot',
-    'googleapis-common-protos==1.5.3',
+    'urllib3',
+    'googleapis-common-protos==1.5.3', # 1.6 beta versions are incompatible
     'google-cloud-speech==0.35.0'
 ]
 
