@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
 
-import io
 import logging
-import os
+import urllib3
 from google.cloud import speech
 from google.cloud.speech import enums
 from google.cloud.speech import types
@@ -18,6 +17,7 @@ log = logging.getLogger(__name__)
 class TranscriptPlugin(Plugin):
     def __init__(self):
         super(TranscriptPlugin, self).__init__('transcript_plugin')
+        self.http = urllib3.PoolManager()
 
     def get_default_config(self):
         return {
@@ -35,7 +35,7 @@ class TranscriptPlugin(Plugin):
     def setup_schedules(self, adapter):
         pass
 
-    def transcribe(self, file_name, message):
+    def transcribe(self, url, message):
         sent_message = message.reply_text(
             text='*Transcribing...*',
             parse_mode='Markdown'
@@ -44,11 +44,11 @@ class TranscriptPlugin(Plugin):
         try:
             client = speech.SpeechClient()
 
-            with io.open(file_name, 'rb') as audio_file:
-                content = audio_file.read()
+            request = self.http.request('GET', url, preload_content=False)
+            stream = request.stream(24000)
 
-            stream = [content]
-            requests = (types.StreamingRecognizeRequest(audio_content=chunk) for chunk in stream)
+            requests = (types.StreamingRecognizeRequest(
+                audio_content=chunk) for chunk in stream)
 
             config = types.RecognitionConfig(
                 encoding=enums.RecognitionConfig.AudioEncoding.OGG_OPUS,
@@ -67,15 +67,14 @@ class TranscriptPlugin(Plugin):
                             transcript=trim_markdown(alternative.transcript),
                             confidence=alternative.confidence,
                         ))
-
+                log.info('transcripts: {}'.format('\n\n'.join(transcripts)))
                 sent_message.edit_text(
                     text='\n\n'.join(transcripts),
                     parse_mode='Markdown'
                 )
         except Exception as err:
-            message.reply_text(text='❌ Unable to transcribe the voice note: {}'.format(err))
-
-        os.unlink(file_name)
+            message.reply_text(
+                text='❌ Unable to transcribe the voice note: {}'.format(err))
 
     def on_transcript_command(self, update):
         message = update.effective_message
@@ -96,9 +95,6 @@ class TranscriptPlugin(Plugin):
                 text='❌ Voice notes longer than one minute are not allowed.')
             return
 
-        file_id = message.reply_to_message.voice.file_id
+        url = message.reply_to_message.voice.get_file().file_path
 
-        fetch_from_telegram(
-            self.adapter,
-            file_id,
-            on_done=lambda file_name: self.transcribe(file_name, message))
+        self.transcribe(url, message)
