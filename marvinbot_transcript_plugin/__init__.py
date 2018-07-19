@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
 
-from marvinbot_transcript_plugin.base import MarvinBotTranscriptPlugin
+from marvinbot_transcript_plugin.base import TranscriptPlugin
 
-plugin = MarvinBotTranscriptPlugin()
+plugin = TranscriptPlugin()

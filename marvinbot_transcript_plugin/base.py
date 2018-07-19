@@ -1,93 +1,108 @@
 # -*- coding: utf-8 -*-
 
-from marvinbot.utils import localized_date, get_message
-from marvinbot.handlers import CommandHandler, CallbackQueryHandler
-from marvinbot.plugins import Plugin
-from marvinbot.models import User
-
+import io
 import logging
-import ctypes
-import time
-import re
-import traceback
-import base64
-import json
-
-from io import BytesIO
-
-from apiclient.discovery import build
-import httplib2
+import os
+from google.cloud import speech
+from google.cloud.speech import enums
+from google.cloud.speech import types
+from marvinbot.handlers import CommandHandler
+from marvinbot.models import User
+from marvinbot.net import fetch_from_telegram
+from marvinbot.plugins import Plugin
+from marvinbot.utils import trim_markdown
 
 log = logging.getLogger(__name__)
 
 
-class MarvinBotTranscriptPlugin(Plugin):
+class TranscriptPlugin(Plugin):
     def __init__(self):
-        super(MarvinBotTranscriptPlugin, self).__init__('marvinbot_transcript_plugin')
-        self.bot = None
+        super(TranscriptPlugin, self).__init__('transcript_plugin')
 
     def get_default_config(self):
         return {
             'short_name': self.name,
+            'key': None,
             'enabled': True
         }
 
     def configure(self, config):
         self.config = config
-        pass
+        if self.config.get('key') is None:
+            log.error(
+                'Google API key for speech recognition missing. /transcribe will not work')
 
     def setup_handlers(self, adapter):
-        self.bot = adapter.bot
-        self.add_handler(CommandHandler('transcript', self.on_transcript_command, command_description='Converter voice note to text'))
- 
+        self.add_handler(CommandHandler('transcript', self.on_transcript_command,
+                                        command_description='Transcribes voice notes to their textual representation using Google Speech Recognition.'))
+
     def setup_schedules(self, adapter):
         pass
 
-    def transcribe(self, content):
-        service = build('speech', 'v1', developerKey=self.config.get('key'))
-        service_request = service.speech().recognize(
-            body={
-                'config': {
-                    'encoding': 'OGG_OPUS',
-                    'sampleRateHertz': 16000,
-                    'languageCode': 'es-DO'
-                },
-                'audio': {
-                    'content': base64.b64encode(content.getvalue()).decode('UTF-8')
-                    }
-                })
-        response = service_request.execute()
+    def transcribe(self, file_name, message):
+        sent_message = message.reply_text(
+            text='*Transcribing...*',
+            parse_mode='Markdown'
+        )
 
-        for result in response['results']:
-            return u'{}\n\nConfidence: {:.2f}%'.format(
-                result['alternatives'][0]['transcript'],
-                (float(result['alternatives'][0]['confidence']) * 100)
+        try:
+            client = speech.SpeechClient()
+
+            with io.open(file_name, 'rb') as audio_file:
+                content = audio_file.read()
+
+            stream = [content]
+            requests = (types.StreamingRecognizeRequest(audio_content=chunk) for chunk in stream)
+
+            config = types.RecognitionConfig(
+                encoding=enums.RecognitionConfig.AudioEncoding.OGG_OPUS,
+                sample_rate_hertz=48000,
+                language_code='es-DO'
+            )
+            streaming_config = types.StreamingRecognitionConfig(config=config)
+
+            responses = client.streaming_recognize(streaming_config, requests)
+
+            transcripts = []
+            for response in responses:
+                for result in response.results:
+                    for alternative in result.alternatives:
+                        transcripts.append('*Transcript:* {transcript}\n*Confidence:* {confidence:.2f}%'.format(
+                            transcript=trim_markdown(alternative.transcript),
+                            confidence=alternative.confidence,
+                        ))
+
+                sent_message.edit_text(
+                    text='\n\n'.join(transcripts),
+                    parse_mode='Markdown'
                 )
+        except Exception as err:
+            message.reply_text(text='❌ Unable to transcribe the voice note: {}'.format(err))
 
-    def on_transcript_command(self, update, *args, **kwargs):
-        message = get_message(update)
+        os.unlink(file_name)
 
-        if message.reply_to_message and message.reply_to_message.voice:
-            voice = message.reply_to_message.voice
-            msg = ""
-            out = None
+    def on_transcript_command(self, update):
+        message = update.effective_message
 
-            try:
-                file = self.adapter.bot.getFile(file_id=voice['file_id'])
-        
-                # Download Voice
-                out = BytesIO()
-                out.seek(0)
-                file.download(out=out)
-                out.seek(0)
+        if not User.is_user_admin(message.from_user):
+            message.reply_text(text="❌ You are not allowed to do that.")
+            return
 
-                if out is not None:
-                    msg = self.transcribe(out)
-                    self.adapter.bot.sendMessage(chat_id=message.chat_id, reply_to_message_id=message.reply_to_message.message_id, text=msg, parse_mode='Markdown')
-            except Exception as err:
-                msg = "Nope. Y'all can't use this shit. 🖕🏿"
-                self.adapter.bot.sendMessage(chat_id=message.chat_id, text=msg)
-                log.error("Transcript - get voice error: {}".format(err))
-        else:
-            msg = "Use /transcript when replying only to a VN only."
-            self.adapter.bot.sendMessage(chat_id=message.chat_id, text=msg)
+        if not message.reply_to_message or not message.reply_to_message.voice:
+            message.reply_text(
+                text='❌ Use /transcript when replying to a voice note.')
+            return
+
+        duration = message.reply_to_message.voice.duration
+
+        if duration > 60:
+            message.reply_text(
+                text='❌ Voice notes longer than one minute are not allowed.')
+            return
+
+        file_id = message.reply_to_message.voice.file_id
+
+        fetch_from_telegram(
+            self.adapter,
+            file_id,
+            on_done=lambda file_name: self.transcribe(file_name, message))
