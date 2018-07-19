@@ -22,15 +22,11 @@ class TranscriptPlugin(Plugin):
     def get_default_config(self):
         return {
             'short_name': self.name,
-            'key': None,
             'enabled': True
         }
 
     def configure(self, config):
         self.config = config
-        if self.config.get('key') is None:
-            log.error(
-                'Google API key for speech recognition missing. /transcribe will not work')
 
     def setup_handlers(self, adapter):
         self.add_handler(CommandHandler('transcript', self.on_transcript_command,
