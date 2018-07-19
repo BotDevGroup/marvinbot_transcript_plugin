@@ -2,12 +2,14 @@ from distutils.core import setup
 from setuptools import find_packages
 
 REQUIREMENTS = [
-    'marvinbot', 'google-api-python-client', 'httplib2'
+    'marvinbot',
+    'googleapis-common-protos==1.5.3',
+    'google-cloud-speech==0.35.0'
 ]
 
 setup(name='marvinbot-transcript-plugin',
-      version='0.1',
-      description='Converter voice note to text',
+      version='0.2',
+      description='Transcribes voice notes to their textual representation.',
       author='Conrado Reyes',
       author_email='coreyes@gmail.com',
       url='',
