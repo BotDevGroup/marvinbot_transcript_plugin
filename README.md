@@ -1,6 +1,6 @@
 # Marvinbot Transcript Plugin
 
-Converter voice note to text with google api.
+Transcribes telegram voice note to text using Google Speech Recognition.
 
 # Requirements
 
@@ -8,17 +8,19 @@ Converter voice note to text with google api.
 
 # Getting Started
 
-## settings.json
+You need to create the json authentication file and set the env GOOGLE_APPLICATION_CREDENTIALS.
+
+[Getting Started with Authentication](https://cloud.google.com/docs/authentication/getting-started)
+
+# Run
 
 ```
-{
-    ...
-    "plugin_configuration": {
-        "marvinbot_transcript_plugin": {
-            "key": "GOOGLE API KEY"
-        }
-    }
-    ...
-}
+$ export GOOGLE_APPLICATION_CREDENTIALS=/home/marvin/cloud_api.json
 
+$ ./marvind start
+```
+
+
+```
+$ env GOOGLE_APPLICATION_CREDENTIALS=/home/marvin/cloud_api.json ./run_standalone.py
 ```
